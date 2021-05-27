@@ -1,6 +1,9 @@
 import argparse
 import collections
 
+from datetime import timedelta
+import time
+
 import numpy as np
 
 import torch
@@ -112,8 +115,11 @@ def main(args=None):
     retinanet.module.freeze_bn()
 
     print('Num training images: {}'.format(len(dataset_train)))
+    start_time = time.time()
 
     for epoch_num in range(parser.epochs):
+
+        epoch_start = time.time()
 
         retinanet.train()
         retinanet.module.freeze_bn()
@@ -156,6 +162,11 @@ def main(args=None):
             except Exception as e:
                 print(e)
                 continue
+        
+        epoch_elapsed = time.time() - epoch_start
+        total_elapsed = time.time() - start_time
+
+        print(f"COMPLETE: Epoch {epoch_num + 1}/{parser.epochs} in {str(timedelta(seconds=epoch_elapsed)).split('.',1)[0]}, total time = {str(timedelta(seconds=total_elapsed)).split('.',1)[0]}")
 
         if parser.dataset == 'coco':
 
