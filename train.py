@@ -3,6 +3,8 @@ import collections
 
 from datetime import timedelta
 import time
+import os,sys
+import glob
 
 import numpy as np
 
@@ -17,6 +19,7 @@ from torch.utils.data import DataLoader
 
 from retinanet import coco_eval
 from retinanet import csv_eval
+
 
 assert torch.__version__.split('.')[0] == '1'
 
@@ -35,6 +38,8 @@ def main(args=None):
 
     parser.add_argument('--depth', help='Resnet depth, must be one of 18, 34, 50, 101, 152', type=int, default=50)
     parser.add_argument('--epochs', help='Number of epochs', type=int, default=100)
+
+    parser.add_argument('--checkpoint', help='Saved .pt file from which to resume training, or \'latest\' for latest in current directory')
 
     parser = parser.parse_args(args)
 
@@ -79,18 +84,38 @@ def main(args=None):
         dataloader_val = DataLoader(dataset_val, num_workers=3, collate_fn=collater, batch_sampler=sampler_val)
 
     # Create the model
-    if parser.depth == 18:
-        retinanet = model.resnet18(num_classes=dataset_train.num_classes(), pretrained=True)
-    elif parser.depth == 34:
-        retinanet = model.resnet34(num_classes=dataset_train.num_classes(), pretrained=True)
-    elif parser.depth == 50:
-        retinanet = model.resnet50(num_classes=dataset_train.num_classes(), pretrained=True)
-    elif parser.depth == 101:
-        retinanet = model.resnet101(num_classes=dataset_train.num_classes(), pretrained=True)
-    elif parser.depth == 152:
-        retinanet = model.resnet152(num_classes=dataset_train.num_classes(), pretrained=True)
+    epoch_offset = 0
+    if parser.checkpoint:
+        if parser.checkpoint == 'latest':
+            glob_str = f"./{parser.dataset}_retinanet_*.pt"
+            checkpoints = glob.glob(glob_str)
+            if not checkpoints: 
+                print(f"No checkpoints ({glob_str}) found")
+                sys.exit()
+
+            checkpoints.sort(key=checkpoint_epoch)
+            checkpoint = checkpoints[-1]
+            print("Latest: ", checkpoint)
+        else:
+            checkpoint = parser.checkpoint
+
+        epoch_offset = checkpoint_epoch(checkpoint)
+
+        print(f"Resuming from checkpoint {parser.checkpoint}, first epoch = {epoch_offset + 1}")
+        retinanet = torch.load(checkpoint)
     else:
-        raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')
+        if parser.depth == 18:
+            retinanet = model.resnet18(num_classes=dataset_train.num_classes(), pretrained=True)
+        elif parser.depth == 34:
+            retinanet = model.resnet34(num_classes=dataset_train.num_classes(), pretrained=True)
+        elif parser.depth == 50:
+            retinanet = model.resnet50(num_classes=dataset_train.num_classes(), pretrained=True)
+        elif parser.depth == 101:
+            retinanet = model.resnet101(num_classes=dataset_train.num_classes(), pretrained=True)
+        elif parser.depth == 152:
+            retinanet = model.resnet152(num_classes=dataset_train.num_classes(), pretrained=True)
+        else:
+            raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')
 
     use_gpu = True
 
@@ -117,7 +142,10 @@ def main(args=None):
     print('Num training images: {}'.format(len(dataset_train)))
     start_time = time.time()
 
-    for epoch_num in range(parser.epochs):
+    for epoch_index in range(epoch_offset, parser.epochs + epoch_offset):
+
+        # epoch_numbers start from 1 please
+        epoch_num = epoch_index + 1
 
         epoch_start = time.time()
 
@@ -166,7 +194,7 @@ def main(args=None):
         epoch_elapsed = time.time() - epoch_start
         total_elapsed = time.time() - start_time
 
-        print(f"COMPLETE: Epoch {epoch_num + 1}/{parser.epochs} in {str(timedelta(seconds=epoch_elapsed)).split('.',1)[0]}, total time = {str(timedelta(seconds=total_elapsed)).split('.',1)[0]}")
+        print(f"COMPLETE: Epoch {epoch_num}/{parser.epochs + epoch_offset} in {str(timedelta(seconds=epoch_elapsed)).split('.',1)[0]}, total time = {str(timedelta(seconds=total_elapsed)).split('.',1)[0]}")
 
         if parser.dataset == 'coco':
 
@@ -188,6 +216,8 @@ def main(args=None):
 
     torch.save(retinanet, 'model_final.pt')
 
+def checkpoint_epoch(filename):
+    return int(os.path.splitext(os.path.basename(filename))[0].split("_")[2])
 
 if __name__ == '__main__':
     main()
